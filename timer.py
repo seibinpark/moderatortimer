@@ -26,9 +26,9 @@ def get_shared_state():
         "bg_color": "#000000",
 
         # stage display settings (ticker message)
-        "msg_color": "#FFFFFF",  # 메시지 색
-        "msg_vw": 2.6,           # 메시지 폰트 크기(vw) - 필요없으면 고정해도 됨
-        "ticker_speed_s": 18,    # 한 바퀴 도는 데 걸리는 시간(초) - 숫자 작을수록 빠름
+        "msg_color": "#FFFFFF",
+        "msg_vw": 2.6,            # 메시지 폰트 크기(vw)
+        "ticker_speed_s": 16,     # 작을수록 빠름
     }
 
 state = get_shared_state()
@@ -133,9 +133,7 @@ if mode == "control":
 
     st.divider()
 
-    # 타이머 세팅
     st.subheader("타이머 세팅")
-
     s1, s2, s3, s4 = st.columns([1.2, 1.2, 1.2, 1.4])
     with s1:
         state["shake"] = st.toggle("지진 효과", value=bool(state.get("shake", False)))
@@ -155,26 +153,22 @@ if mode == "control":
 
     st.divider()
 
-    # 무대 메시지 세팅(요청 반영: 색상만)
     st.subheader("무대 메시지 세팅")
-
     mc1, mc2 = st.columns([1.5, 1.5])
     with mc1:
         msg_label = st.selectbox("메시지 색상", list(MSG_COLOR_PRESETS.keys()), index=0)
         state["msg_color"] = MSG_COLOR_PRESETS[msg_label]
     with mc2:
-        # 속도는 옵션인데, 방송 느낌 조절에 유용해서 넣어둠
         state["ticker_speed_s"] = st.slider(
             "자막 속도(느림↔빠름)",
             min_value=8,
             max_value=30,
-            value=int(state.get("ticker_speed_s", 18)),
+            value=int(state.get("ticker_speed_s", 16)),
             step=1,
         )
 
     st.divider()
 
-    # 시간 설정(분/초)
     st.subheader("시간 설정")
     preset = st.radio("프리셋(분)", [3, 5, 10, 15, 20, "custom"], horizontal=True)
 
@@ -194,7 +188,6 @@ if mode == "control":
 
     st.divider()
 
-    # 제어 버튼
     st.subheader("타이머 제어")
     b1, b2, b3 = st.columns(3)
     with b1:
@@ -206,7 +199,6 @@ if mode == "control":
 
     st.divider()
 
-    # 메시지 입력
     st.subheader("무대 메시지")
     msg = st.text_area("무대에 흘릴 메시지", value=state["message"], height=110)
 
@@ -227,17 +219,6 @@ else:
     st.experimental_set_query_params(mode="stage")
     st_autorefresh(interval=1000, key="stage_refresh")
 
-    st.markdown(
-        """
-        <style>
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
     remaining = get_remaining()
     time_str = format_time(remaining)
 
@@ -245,27 +226,49 @@ else:
     font_vw = float(state.get("font_vw", 18.0))
     shake = bool(state.get("shake", False))
     spin = bool(state.get("spin", False))
-
     timer_color = pick_timer_color(remaining)
 
     msg = (state.get("message") or "").strip()
     msg_color = state.get("msg_color", "#FFFFFF")
     msg_vw = float(state.get("msg_vw", 2.6))
-    speed_s = int(state.get("ticker_speed_s", 18))
+    speed_s = int(state.get("ticker_speed_s", 16))
 
+    # stage에서는 Streamlit 기본 여백/흰배경을 완전히 제거
     st.markdown(
         f"""
         <style>
-        .stage {{
-          height: 100vh;
+        html, body {{
+          height: 100%;
           background: {bg};
-          margin: 0;
-          padding: 0;
         }}
 
-        /* 상단 티커 바 */
-        .ticker-bar {{
+        /* Streamlit 전체 배경/여백 제거 */
+        .stApp {{
+          background: {bg};
+        }}
+        [data-testid="stAppViewContainer"] {{
+          background: {bg};
+        }}
+        [data-testid="stHeader"], #MainMenu, footer {{
+          display: none !important;
+        }}
+        .block-container {{
+          padding: 0 !important;
+          margin: 0 !important;
+          max-width: 100% !important;
+        }}
+
+        /* 전체 stage 래퍼 */
+        .stage {{
           position: fixed;
+          inset: 0;
+          background: {bg};
+          overflow: hidden;
+        }}
+
+        /* 티커 바: 검은 화면 안에서만 */
+        .ticker-bar {{
+          position: absolute;
           top: 0;
           left: 0;
           right: 0;
@@ -274,36 +277,37 @@ else:
           display: flex;
           align-items: center;
           overflow: hidden;
-          z-index: 999;
           border-bottom: 1px solid rgba(255,255,255,0.08);
         }}
 
-        .ticker-track {{
-          white-space: nowrap;
-          display: inline-block;
-          padding-left: 100%;
-          animation: ticker {speed_s}s linear infinite;
-        }}
-
+        /* 한 문장만 흘림 (오→왼) */
         .ticker-text {{
-          display: inline-block;
+          position: absolute;
+          white-space: nowrap;
           color: {msg_color};
           font-size: {msg_vw}vw;
           font-weight: 700;
           font-family: 'Segoe UI', sans-serif;
           letter-spacing: 0.02em;
           text-shadow: 0 2px 8px rgba(0,0,0,0.35);
+
+          /* 시작: 화면 오른쪽 밖 / 끝: 왼쪽 밖 */
+          transform: translateX(100%);
+          animation: slide {speed_s}s linear infinite;
         }}
 
-        @keyframes ticker {{
-          0%   {{ transform: translateX(0); }}
-          100% {{ transform: translateX(-100%); }}
+        @keyframes slide {{
+          0%   {{ transform: translateX(110vw); }}
+          100% {{ transform: translateX(-110vw); }}
         }}
 
-        /* 타이머 영역(티커 아래로 내려서 겹침 방지) */
+        /* 타이머 영역 */
         .timer-wrap {{
-          height: 90vh;
-          margin-top: 10vh;
+          position: absolute;
+          top: 10vh;
+          left: 0;
+          right: 0;
+          bottom: 0;
           display: flex;
           justify-content: center;
           align-items: center;
@@ -343,54 +347,31 @@ else:
         .spin {{
           animation: spin360 1.4s linear infinite;
         }}
-
-        .spin-on-wrap .spin-inner {{
-          animation: spin360 1.4s linear infinite;
-          transform-origin: center center;
-        }}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # 티커(메시지 없으면 바를 숨김)
-    if msg:
-        # 메시지가 짧으면 티커가 금방 끝나보여서, 동일 문구를 3번 반복해 길이 확보
-        repeated = "   •   ".join([msg, msg, msg])
-        st.markdown(
-            f"""
-            <div class="ticker-bar">
-              <div class="ticker-track">
-                <span class="ticker-text">{repeated}</span>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    # 타이머 class
+    cls = ("shake" if shake else "") + (" spin" if spin else "")
 
-    # 타이머
-    if shake and spin:
-        st.markdown(
-            f"""
-            <div class="stage">
-              <div class="timer-wrap spin-on-wrap">
-                <div class="spin-inner">
-                  <div class="timer-text shake">{time_str}</div>
-                </div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        cls = ("shake" if shake else "") + (" spin" if spin else "")
-        st.markdown(
-            f"""
-            <div class="stage">
-              <div class="timer-wrap">
-                <div class="timer-text {cls}">{time_str}</div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    # 렌더
+    ticker_html = ""
+    if msg:
+        ticker_html = f"""
+        <div class="ticker-bar">
+          <div class="ticker-text">{msg}</div>
+        </div>
+        """
+
+    st.markdown(
+        f"""
+        <div class="stage">
+          {ticker_html}
+          <div class="timer-wrap">
+            <div class="timer-text {cls}">{time_str}</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
