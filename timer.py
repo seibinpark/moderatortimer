@@ -11,14 +11,14 @@ st.set_page_config(
 @st.cache_resource
 def get_shared_state():
     return {
-        "duration": 15 * 60,   # 정지 상태에서는 남은 시간, 실행 상태에서는 시작 시점 기준 초기 남은 시간
+        "duration": 15 * 60,
         "start_time": None,
         "running": False,
         "message": "",
         "last_update": time.time(),
-        # 이펙트(오리) 표시용
-        "fx_until": 0.0,       # 이 시간(epoch)까지 stage에 오리 표시
-        "fx_text": "🦆",       # 간단 이펙트 텍스트(원하면 변경)
+        # fx
+        "fx_until": 0.0,     # 이 시각까지 fx 표시
+        "fx_seed": 0,        # fx 재발동 시 애니메이션 강제 리셋용
     }
 
 state = get_shared_state()
@@ -71,6 +71,7 @@ def reset_timer_stop_only():
 
 def trigger_duck_fx(seconds: float = 2.0):
     state["fx_until"] = time.time() + float(seconds)
+    state["fx_seed"] = int(state.get("fx_seed", 0)) + 1
     state["last_update"] = time.time()
 
 
@@ -83,30 +84,26 @@ if mode == "control":
 
     st.title("⏱ 좌장 타이머 – 컨트롤")
 
-    # Stage URL(클릭 가능)
     stage_url = get_stage_url()
     st.markdown(f"무대 화면 링크: [{stage_url}]({stage_url})")
 
-    # 현재 상태
     remaining = get_remaining()
-    status_col1, status_col2 = st.columns([1, 1])
-    with status_col1:
+    c1, c2 = st.columns([1, 1])
+    with c1:
         st.metric("남은 시간", format_time(remaining))
-    with status_col2:
+    with c2:
         st.metric("상태", "실행 중" if state["running"] else "정지")
 
     st.divider()
 
-    # 시간 설정: 프리셋 + 커스텀(분/초)
     st.subheader("시간 설정")
-
     preset = st.radio("프리셋", [3, 5, 10, 15, 20, "custom"], horizontal=True)
 
     if preset == "custom":
-        c1, c2 = st.columns(2)
-        with c1:
+        cc1, cc2 = st.columns(2)
+        with cc1:
             m = st.number_input("분", min_value=0, max_value=180, value=15, step=1)
-        with c2:
+        with cc2:
             s = st.number_input("초", min_value=0, max_value=59, value=0, step=1)
         total_seconds = int(m) * 60 + int(s)
     else:
@@ -118,23 +115,22 @@ if mode == "control":
 
     st.divider()
 
-    # 제어 버튼
     st.subheader("타이머 제어")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
+    b1, b2, b3, b4 = st.columns(4)
+    with b1:
         st.button("시작", on_click=start_timer_from_current, use_container_width=True)
-    with c2:
+    with b2:
         st.button("일시정지", on_click=pause_timer, use_container_width=True)
-    with c3:
+    with b3:
         st.button("리셋(정지)", on_click=reset_timer_stop_only, use_container_width=True)
-    with c4:
-        st.button("오리 뿅", on_click=lambda: trigger_duck_fx(2.0), use_container_width=True)
+    with b4:
+        st.button("오리 슝", on_click=lambda: trigger_duck_fx(2.0), use_container_width=True)
 
     st.divider()
 
-    # 메시지
     st.subheader("무대 메시지")
     msg = st.text_area("무대 메시지", value=state["message"], height=110)
+
     m1, m2 = st.columns(2)
     with m1:
         if st.button("메시지 전송", use_container_width=True):
@@ -147,7 +143,6 @@ if mode == "control":
             state["last_update"] = time.time()
             st.success("메시지를 삭제했습니다")
 
-    # 컨트롤 화면도 1초마다 갱신(남은 시간 표시용)
     time.sleep(1)
     st.rerun()
 
@@ -176,15 +171,10 @@ else:
     elif remaining <= 180:
         color = "#FFD700"
 
-    # (선택) 자동 이펙트: 60초, 30초 남았을 때 오리 잠깐
-    # 원치 않으면 아래 2줄을 지우세요
-    if remaining in (60, 30):
-        trigger_duck_fx(1.2)
-
-    # 타이머 출력
+    # 타이머 화면(메시지는 아래에서 단 1번만 출력)
     st.markdown(
         f"""
-        <div style="height:65vh; display:flex; justify-content:center; align-items:center; background:black; position:relative;">
+        <div style="height:78vh; display:flex; justify-content:center; align-items:center; background:black;">
             <span style="font-size:18vw; font-weight:800; color:{color}; font-family: 'Segoe UI', sans-serif;">
                 {time_str}
             </span>
@@ -193,39 +183,54 @@ else:
         unsafe_allow_html=True,
     )
 
-    # 오리 이펙트(잠깐 표시)
+    # 오리 이펙트: 화면 가운데를 왼→오로 슝 (4마리)
     now = time.time()
     if now < float(state.get("fx_until", 0.0)):
-        # 외부 오리 이미지 URL (원하면 본인 png로 교체 가능)
-        duck_url = "https://upload.wikimedia.org/wikipedia/commons/3/3e/Emojione_1F986.svg"
+        seed = int(state.get("fx_seed", 0))
         st.markdown(
-            """
+            f"""
             <style>
-            .duck-fx {
+            .duck-layer {{
               position: fixed;
-              right: 5vw;
-              bottom: 10vh;
-              font-size: 8vw;
-              animation: duckPop 0.9s ease-in-out infinite alternate;
+              inset: 0;
+              pointer-events: none;
               z-index: 9999;
-            }
-            @keyframes duckPop {
-              from { transform: translateY(0px) rotate(-8deg); opacity: 0.7; }
-              to   { transform: translateY(-18px) rotate(8deg); opacity: 1.0; }
-            }
+            }}
+            @keyframes flyAcross {{
+              0%   {{ transform: translateX(-25vw) translateY(var(--dy)) scale(1); opacity: 0; }}
+              10%  {{ opacity: 1; }}
+              90%  {{ opacity: 1; }}
+              100% {{ transform: translateX(125vw) translateY(var(--dy)) scale(1); opacity: 0; }}
+            }}
+            .duck {{
+              position: fixed;
+              top: 42vh;
+              left: 0;
+              font-size: 7vw;
+              animation: flyAcross 2.0s linear;
+              animation-delay: var(--delay);
+              transform: translateX(-25vw);
+              filter: drop-shadow(0px 6px 10px rgba(0,0,0,0.35));
+            }}
             </style>
+
+            <div class="duck-layer" data-seed="{seed}">
+              <div class="duck" style="--delay: 0.00s; --dy: -6vh;">🦆</div>
+              <div class="duck" style="--delay: 0.15s; --dy: -1vh;">🦆</div>
+              <div class="duck" style="--delay: 0.30s; --dy:  4vh;">🦆</div>
+              <div class="duck" style="--delay: 0.45s; --dy:  9vh;">🦆</div>
+            </div>
             """,
             unsafe_allow_html=True,
         )
-        # 이미지 대신 이모지로도 충분히 “뿅” 느낌이 납니다
-        st.markdown(f'<div class="duck-fx">{state.get("fx_text","🦆")}</div>', unsafe_allow_html=True)
 
-    # 메시지 표시
-    if state["message"]:
+    # 메시지 바: 딱 1번만 출력
+    msg = (state.get("message") or "").strip()
+    if msg:
         st.markdown(
             f"""
             <div style="background:#222; color:white; padding:20px; font-size:2.5vw; text-align:center;">
-                {state["message"]}
+                {msg}
             </div>
             """,
             unsafe_allow_html=True,
@@ -240,6 +245,5 @@ else:
             unsafe_allow_html=True,
         )
 
-    # stage는 항상 1초 폴링
     time.sleep(1)
     st.rerun()
