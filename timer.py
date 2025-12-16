@@ -19,11 +19,16 @@ def get_shared_state():
         "message": "",
         "last_update": time.time(),
 
-        # stage display settings
-        "font_vw": 18.0,          # 타이머 숫자 크기 (vw 단위)
-        "shake": False,           # 지진 효과
-        "spin": False,            # 360 회전
-        "bg_color": "#000000",    # 배경색
+        # stage display settings (timer)
+        "font_vw": 18.0,
+        "shake": False,
+        "spin": False,
+        "bg_color": "#000000",
+
+        # stage display settings (ticker message)
+        "msg_color": "#FFFFFF",  # 메시지 색
+        "msg_vw": 2.6,           # 메시지 폰트 크기(vw) - 필요없으면 고정해도 됨
+        "ticker_speed_s": 18,    # 한 바퀴 도는 데 걸리는 시간(초) - 숫자 작을수록 빠름
     }
 
 state = get_shared_state()
@@ -79,7 +84,6 @@ def get_stage_url() -> str:
 
 
 def pick_timer_color(remaining: int) -> str:
-    # 남은시간에 따라 숫자색 자동 변경
     if remaining <= 60:
         return "#FF3333" if remaining % 2 == 0 else "#FFFFFF"
     if remaining <= 180:
@@ -98,6 +102,18 @@ BG_PRESETS = {
     "보라": "#7030a0",
     "흰색": "#ffffff",
 }
+
+MSG_COLOR_PRESETS = {
+    "흰색": "#ffffff",
+    "빨강": "#ff3b30",
+    "주황": "#ff9500",
+    "노랑": "#ffd60a",
+    "초록": "#34c759",
+    "파랑": "#0a84ff",
+    "남색": "#2f2bff",
+    "보라": "#bf5af2",
+}
+
 
 if mode == "control":
     st.experimental_set_query_params(mode="control")
@@ -121,14 +137,13 @@ if mode == "control":
     st.subheader("타이머 세팅")
 
     s1, s2, s3, s4 = st.columns([1.2, 1.2, 1.2, 1.4])
-
     with s1:
         state["shake"] = st.toggle("지진 효과", value=bool(state.get("shake", False)))
     with s2:
         state["spin"] = st.toggle("360도 회전", value=bool(state.get("spin", False)))
     with s3:
         state["font_vw"] = st.slider(
-            "폰트 크기",
+            "타이머 폰트 크기",
             min_value=8.0,
             max_value=28.0,
             value=float(state.get("font_vw", 18.0)),
@@ -137,6 +152,25 @@ if mode == "control":
     with s4:
         label = st.selectbox("배경색", list(BG_PRESETS.keys()), index=0)
         state["bg_color"] = BG_PRESETS[label]
+
+    st.divider()
+
+    # 무대 메시지 세팅(요청 반영: 색상만)
+    st.subheader("무대 메시지 세팅")
+
+    mc1, mc2 = st.columns([1.5, 1.5])
+    with mc1:
+        msg_label = st.selectbox("메시지 색상", list(MSG_COLOR_PRESETS.keys()), index=0)
+        state["msg_color"] = MSG_COLOR_PRESETS[msg_label]
+    with mc2:
+        # 속도는 옵션인데, 방송 느낌 조절에 유용해서 넣어둠
+        state["ticker_speed_s"] = st.slider(
+            "자막 속도(느림↔빠름)",
+            min_value=8,
+            max_value=30,
+            value=int(state.get("ticker_speed_s", 18)),
+            step=1,
+        )
 
     st.divider()
 
@@ -172,9 +206,9 @@ if mode == "control":
 
     st.divider()
 
-    # 메시지
+    # 메시지 입력
     st.subheader("무대 메시지")
-    msg = st.text_area("무대 메시지", value=state["message"], height=110)
+    msg = st.text_area("무대에 흘릴 메시지", value=state["message"], height=110)
 
     m1, m2 = st.columns(2)
     with m1:
@@ -212,23 +246,73 @@ else:
     shake = bool(state.get("shake", False))
     spin = bool(state.get("spin", False))
 
-    color = pick_timer_color(remaining)
+    timer_color = pick_timer_color(remaining)
+
+    msg = (state.get("message") or "").strip()
+    msg_color = state.get("msg_color", "#FFFFFF")
+    msg_vw = float(state.get("msg_vw", 2.6))
+    speed_s = int(state.get("ticker_speed_s", 18))
 
     st.markdown(
         f"""
         <style>
-        .stage-wrap {{
-          height: 78vh;
+        .stage {{
+          height: 100vh;
+          background: {bg};
+          margin: 0;
+          padding: 0;
+        }}
+
+        /* 상단 티커 바 */
+        .ticker-bar {{
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 10vh;
+          background: rgba(0,0,0,0.35);
+          display: flex;
+          align-items: center;
+          overflow: hidden;
+          z-index: 999;
+          border-bottom: 1px solid rgba(255,255,255,0.08);
+        }}
+
+        .ticker-track {{
+          white-space: nowrap;
+          display: inline-block;
+          padding-left: 100%;
+          animation: ticker {speed_s}s linear infinite;
+        }}
+
+        .ticker-text {{
+          display: inline-block;
+          color: {msg_color};
+          font-size: {msg_vw}vw;
+          font-weight: 700;
+          font-family: 'Segoe UI', sans-serif;
+          letter-spacing: 0.02em;
+          text-shadow: 0 2px 8px rgba(0,0,0,0.35);
+        }}
+
+        @keyframes ticker {{
+          0%   {{ transform: translateX(0); }}
+          100% {{ transform: translateX(-100%); }}
+        }}
+
+        /* 타이머 영역(티커 아래로 내려서 겹침 방지) */
+        .timer-wrap {{
+          height: 90vh;
+          margin-top: 10vh;
           display: flex;
           justify-content: center;
           align-items: center;
-          background: {bg};
         }}
 
         .timer-text {{
           font-size: {font_vw}vw;
           font-weight: 900;
-          color: {color};
+          color: {timer_color};
           font-family: 'Segoe UI', sans-serif;
           letter-spacing: 0.02em;
           transform-origin: center center;
@@ -260,57 +344,39 @@ else:
           animation: spin360 1.4s linear infinite;
         }}
 
-        .spin-on-wrap .stage-wrap-inner {{
+        .spin-on-wrap .spin-inner {{
           animation: spin360 1.4s linear infinite;
           transform-origin: center center;
-        }}
-        .shake-on-text .timer-text {{
-          animation: quake 0.45s infinite;
-        }}
-
-        /* iPhone 메시지 느낌 말풍선 */
-        .bubble-wrap {{
-          position: fixed;
-          bottom: 6vh;
-          left: 50%;
-          transform: translateX(-50%);
-          z-index: 999;
-          max-width: 80%;
-        }}
-        .bubble {{
-          background: rgba(40, 40, 40, 0.95);
-          color: #fff;
-          padding: 18px 26px;
-          border-radius: 28px;
-          font-size: 2.4vw;
-          font-weight: 500;
-          text-align: center;
-          box-shadow: 0 8px 20px rgba(0,0,0,0.35);
-          position: relative;
-          word-break: keep-all;
-        }}
-        .bubble::after {{
-          content: "";
-          position: absolute;
-          bottom: -10px;
-          left: 50%;
-          transform: translateX(-50%);
-          border-width: 10px 12px 0 12px;
-          border-style: solid;
-          border-color: rgba(40,40,40,0.95) transparent transparent transparent;
         }}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # 타이머 본문
+    # 티커(메시지 없으면 바를 숨김)
+    if msg:
+        # 메시지가 짧으면 티커가 금방 끝나보여서, 동일 문구를 3번 반복해 길이 확보
+        repeated = "   •   ".join([msg, msg, msg])
+        st.markdown(
+            f"""
+            <div class="ticker-bar">
+              <div class="ticker-track">
+                <span class="ticker-text">{repeated}</span>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # 타이머
     if shake and spin:
         st.markdown(
             f"""
-            <div class="stage-wrap spin-on-wrap">
-              <div class="stage-wrap-inner">
-                <div class="timer-text">{time_str}</div>
+            <div class="stage">
+              <div class="timer-wrap spin-on-wrap">
+                <div class="spin-inner">
+                  <div class="timer-text shake">{time_str}</div>
+                </div>
               </div>
             </div>
             """,
@@ -320,22 +386,11 @@ else:
         cls = ("shake" if shake else "") + (" spin" if spin else "")
         st.markdown(
             f"""
-            <div class="stage-wrap">
-              <div class="timer-text {cls}">{time_str}</div>
+            <div class="stage">
+              <div class="timer-wrap">
+                <div class="timer-text {cls}">{time_str}</div>
+              </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-
-    # 말풍선 메시지(있을 때만)
-    msg = (state.get("message") or "").strip()
-    if msg:
-        st.markdown(
-            f"""
-            <div class="bubble-wrap">
-              <div class="bubble">{msg}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
