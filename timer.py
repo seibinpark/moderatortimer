@@ -1,5 +1,4 @@
 import time
-import random
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
@@ -13,14 +12,19 @@ st.set_page_config(
 @st.cache_resource
 def get_shared_state():
     return {
+        # timer core
         "duration": 15 * 60,
         "start_time": None,
         "running": False,
         "message": "",
         "last_update": time.time(),
-        "fx_until": 0.0,
-        "fx_seed": 0,
-        "fx_count": 4,
+
+        # stage display settings
+        "font_vw": 18.0,          # 타이머 숫자 크기 (vw 단위)
+        "shake": False,           # 지진 효과
+        "spin": False,            # 360 회전
+        "bg_color": "#000000",    # 배경색
+        "timer_color": "#FFFFFF", # 숫자 색 (기본 흰색, 남은시간에 따라 자동 변경)
     }
 
 state = get_shared_state()
@@ -71,21 +75,33 @@ def reset_timer_stop_only():
     state["last_update"] = time.time()
 
 
-def trigger_duck_fx(seconds: float = 1.6, count: int = 4):
-    state["fx_until"] = time.time() + float(seconds)
-    state["fx_seed"] = int(state.get("fx_seed", 0)) + 1
-    state["fx_count"] = int(count)
-    state["last_update"] = time.time()
-
-
 def get_stage_url() -> str:
     return "?mode=stage"
 
 
+def pick_timer_color(remaining: int) -> str:
+    # 남은시간에 따라 숫자색 자동 변경(기존 룰 유지)
+    if remaining <= 60:
+        return "#FF3333" if remaining % 2 == 0 else "#FFFFFF"
+    if remaining <= 180:
+        return "#FFD700"
+    return "#FFFFFF"
+
+
+BG_PRESETS = {
+    "검정": "#000000",
+    "빨강": "#ff0000",
+    "주황": "#ff7a00",
+    "노랑": "#ffd400",
+    "초록": "#00b050",
+    "파랑": "#0070c0",
+    "남색": "#002060",
+    "보라": "#7030a0",
+    "흰색": "#ffffff",
+}
+
 if mode == "control":
     st.experimental_set_query_params(mode="control")
-
-    # 1초 자동 갱신(남은 시간 표시용)
     st_autorefresh(interval=1000, key="control_refresh")
 
     st.title("⏱ 좌장 타이머 – 컨트롤")
@@ -102,8 +118,36 @@ if mode == "control":
 
     st.divider()
 
+    # -------------------------
+    # 타이머 세팅(요청 반영)
+    # -------------------------
+    st.subheader("타이머 세팅")
+
+    s1, s2, s3, s4 = st.columns([1.2, 1.2, 1.2, 1.4])
+
+    with s1:
+        state["shake"] = st.toggle("지진 효과", value=bool(state.get("shake", False)))
+    with s2:
+        state["spin"] = st.toggle("360도 회전", value=bool(state.get("spin", False)))
+    with s3:
+        state["font_vw"] = st.slider(
+            "폰트 크기",
+            min_value=8.0,
+            max_value=28.0,
+            value=float(state.get("font_vw", 18.0)),
+            step=0.5,
+        )
+    with s4:
+        label = st.selectbox("배경색", list(BG_PRESETS.keys()), index=0)
+        state["bg_color"] = BG_PRESETS[label]
+
+    st.caption("배경색이 밝을 경우(흰색/노랑) 숫자가 안 보이면, 숫자색 자동 규칙 때문에 시인성이 떨어질 수 있습니다. 필요하면 숫자색 고정 옵션도 추가 가능합니다")
+
+    st.divider()
+
+    # 시간 설정(분/초)
     st.subheader("시간 설정")
-    preset = st.radio("프리셋", [3, 5, 10, 15, 20, "custom"], horizontal=True)
+    preset = st.radio("프리셋(분)", [3, 5, 10, 15, 20, "custom"], horizontal=True)
 
     if preset == "custom":
         cc1, cc2 = st.columns(2)
@@ -121,19 +165,19 @@ if mode == "control":
 
     st.divider()
 
+    # 제어 버튼
     st.subheader("타이머 제어")
-    b1, b2, b3, b4 = st.columns(4)
+    b1, b2, b3 = st.columns(3)
     with b1:
         st.button("시작", on_click=start_timer_from_current, use_container_width=True)
     with b2:
         st.button("일시정지", on_click=pause_timer, use_container_width=True)
     with b3:
         st.button("리셋(정지)", on_click=reset_timer_stop_only, use_container_width=True)
-    with b4:
-        st.button("오리 뿅", on_click=lambda: trigger_duck_fx(1.6, 4), use_container_width=True)
 
     st.divider()
 
+    # 메시지
     st.subheader("무대 메시지")
     msg = st.text_area("무대 메시지", value=state["message"], height=110)
 
@@ -149,8 +193,10 @@ if mode == "control":
             state["last_update"] = time.time()
             st.success("메시지를 삭제했습니다")
 
+
 else:
     st.experimental_set_query_params(mode="stage")
+    st_autorefresh(interval=1000, key="stage_refresh")
 
     st.markdown(
         """
@@ -163,84 +209,110 @@ else:
         unsafe_allow_html=True,
     )
 
-    # 1초 자동 갱신
-    st_autorefresh(interval=1000, key="stage_refresh")
-
     remaining = get_remaining()
     time_str = format_time(remaining)
 
-    color = "#FFFFFF"
-    if remaining <= 60:
-        color = "#FF3333" if remaining % 2 == 0 else "#FFFFFF"
-    elif remaining <= 180:
-        color = "#FFD700"
+    bg = state.get("bg_color", "#000000")
+    font_vw = float(state.get("font_vw", 18.0))
+    shake = bool(state.get("shake", False))
+    spin = bool(state.get("spin", False))
+
+    # 숫자색은 남은시간 규칙으로 자동
+    color = pick_timer_color(remaining)
+
+    # 애니메이션 클래스 구성
+    classes = []
+    if shake:
+        classes.append("shake")
+    if spin:
+        classes.append("spin")
+
+    cls = " ".join(classes).strip()
 
     st.markdown(
         f"""
-        <div style="height:78vh; display:flex; justify-content:center; align-items:center; background:black; position:relative;">
-            <span style="font-size:18vw; font-weight:800; color:{color}; font-family:'Segoe UI', sans-serif;">
-                {time_str}
-            </span>
-        </div>
+        <style>
+        .stage-wrap {{
+          height: 78vh;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          background: {bg};
+        }}
+
+        .timer-text {{
+          font-size: {font_vw}vw;
+          font-weight: 900;
+          color: {color};
+          font-family: 'Segoe UI', sans-serif;
+          letter-spacing: 0.02em;
+          transform-origin: center center;
+          user-select: none;
+        }}
+
+        /* 지진 효과 */
+        @keyframes quake {{
+          0%   {{ transform: translate(0,0) rotate(0deg); }}
+          10%  {{ transform: translate(-2px, 2px) rotate(-1deg); }}
+          20%  {{ transform: translate(-4px, 0px) rotate(1deg); }}
+          30%  {{ transform: translate(4px, 2px) rotate(0deg); }}
+          40%  {{ transform: translate(2px, -2px) rotate(1deg); }}
+          50%  {{ transform: translate(-2px, 2px) rotate(-1deg); }}
+          60%  {{ transform: translate(-4px, -2px) rotate(0deg); }}
+          70%  {{ transform: translate(4px, -2px) rotate(-1deg); }}
+          80%  {{ transform: translate(-2px, -2px) rotate(1deg); }}
+          90%  {{ transform: translate(2px, 2px) rotate(0deg); }}
+          100% {{ transform: translate(0,0) rotate(0deg); }}
+        }}
+        .shake {{
+          animation: quake 0.45s infinite;
+        }}
+
+        /* 360도 회전 */
+        @keyframes spin360 {{
+          from {{ transform: rotate(0deg); }}
+          to   {{ transform: rotate(360deg); }}
+        }}
+        .spin {{
+          animation: spin360 1.4s linear infinite;
+        }}
+
+        /* shake + spin 동시일 때, transform 충돌 방지: wrap에 spin, text에 shake */
+        .spin-on-wrap .stage-wrap-inner {{
+          animation: spin360 1.4s linear infinite;
+          transform-origin: center center;
+        }}
+        .shake-on-text .timer-text {{
+          animation: quake 0.45s infinite;
+        }}
+        </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # 오리 이펙트(타이머 수치 근처에 잠깐 뿅)
-    now = time.time()
-    if now < float(state.get("fx_until", 0.0)):
-        seed = int(state.get("fx_seed", 0))
-        random.seed(seed)
-
-        count = int(state.get("fx_count", 4))
-        ducks_html = []
-        for _ in range(count):
-            dx = random.randint(-18, 18)
-            dy = random.randint(-10, 10)
-            delay = random.uniform(0.0, 0.25)
-            size = random.uniform(5.5, 7.5)
-            ducks_html.append(
-                f"""
-                <div class="duck" style="
-                    --dx:{dx}vw; --dy:{dy}vh; --delay:{delay}s; --size:{size}vw;
-                ">🦆</div>
-                """
-            )
-
+    # transform 충돌 해결: 두 효과 동시 켜면 wrapper/텍스트로 분리 적용
+    if shake and spin:
         st.markdown(
             f"""
-            <style>
-            .duck-layer {{
-              position: fixed;
-              inset: 0;
-              pointer-events: none;
-              z-index: 9999;
-            }}
-            @keyframes pop {{
-              0%   {{ transform: translate(var(--dx), var(--dy)) scale(0.6); opacity: 0; }}
-              30%  {{ opacity: 1; }}
-              70%  {{ opacity: 1; }}
-              100% {{ transform: translate(var(--dx), var(--dy)) scale(1.05); opacity: 0; }}
-            }}
-            .duck {{
-              position: fixed;
-              left: 50%;
-              top: 38%;
-              font-size: var(--size);
-              transform: translate(-50%, -50%);
-              animation: pop 1.2s ease-in-out;
-              animation-delay: var(--delay);
-              filter: drop-shadow(0px 6px 10px rgba(0,0,0,0.35));
-            }}
-            </style>
-            <div class="duck-layer">
-              {''.join(ducks_html)}
+            <div class="stage-wrap spin-on-wrap">
+              <div class="stage-wrap-inner">
+                <div class="timer-text">{time_str}</div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"""
+            <div class="stage-wrap">
+              <div class="timer-text {cls}">{time_str}</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    # 메시지(한 번만 출력)
+    # 메시지(하단 1회)
     msg = (state.get("message") or "").strip()
     if msg:
         st.markdown(
