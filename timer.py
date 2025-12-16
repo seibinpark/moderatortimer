@@ -1,4 +1,5 @@
 import time
+import random
 import streamlit as st
 
 st.set_page_config(
@@ -11,14 +12,16 @@ st.set_page_config(
 @st.cache_resource
 def get_shared_state():
     return {
-        "duration": 15 * 60,
+        "duration": 15 * 60,      # 정지 상태: 남은 시간 / 실행 상태: 시작 시점 기준 초기 남은 시간
         "start_time": None,
         "running": False,
         "message": "",
         "last_update": time.time(),
-        # fx
-        "fx_until": 0.0,     # 이 시각까지 fx 표시
-        "fx_seed": 0,        # fx 재발동 시 애니메이션 강제 리셋용
+
+        # 오리 이펙트
+        "fx_until": 0.0,          # 이 시각까지 오리 표시
+        "fx_seed": 0,             # 새로 발동 시 위치 랜덤을 바꾸기 위한 시드
+        "fx_count": 4,            # 오리 마리 수
     }
 
 state = get_shared_state()
@@ -29,7 +32,7 @@ mode = query_params.get("mode", ["control"])[0]
 
 def format_time(sec: int) -> str:
     sec = max(int(sec), 0)
-    return f"{sec//60:02d}:{sec%60:02d}"
+    return f"{sec // 60:02d}:{sec % 60:02d}"
 
 
 def get_remaining() -> int:
@@ -69,9 +72,10 @@ def reset_timer_stop_only():
     state["last_update"] = time.time()
 
 
-def trigger_duck_fx(seconds: float = 2.0):
+def trigger_duck_fx(seconds: float = 1.6, count: int = 4):
     state["fx_until"] = time.time() + float(seconds)
     state["fx_seed"] = int(state.get("fx_seed", 0)) + 1
+    state["fx_count"] = int(count)
     state["last_update"] = time.time()
 
 
@@ -87,6 +91,7 @@ if mode == "control":
     stage_url = get_stage_url()
     st.markdown(f"무대 화면 링크: [{stage_url}]({stage_url})")
 
+    # 상태 표시
     remaining = get_remaining()
     c1, c2 = st.columns([1, 1])
     with c1:
@@ -124,7 +129,7 @@ if mode == "control":
     with b3:
         st.button("리셋(정지)", on_click=reset_timer_stop_only, use_container_width=True)
     with b4:
-        st.button("오리 슝", on_click=lambda: trigger_duck_fx(2.0), use_container_width=True)
+        st.button("오리 뿅", on_click=lambda: trigger_duck_fx(1.6, 4), use_container_width=True)
 
     st.divider()
 
@@ -143,8 +148,9 @@ if mode == "control":
             state["last_update"] = time.time()
             st.success("메시지를 삭제했습니다")
 
-    time.sleep(1)
-    st.rerun()
+    # control 화면도 1초마다 갱신(남은 시간 표시)
+    st.autorefresh(interval=1000, key="control_refresh")
+
 
 else:
     st.experimental_set_query_params(mode="stage")
@@ -161,6 +167,9 @@ else:
         unsafe_allow_html=True,
     )
 
+    # 1초 자동 갱신(깜빡임/중복 이슈 줄이기)
+    st.autorefresh(interval=1000, key="stage_refresh")
+
     remaining = get_remaining()
     time_str = format_time(remaining)
 
@@ -171,11 +180,11 @@ else:
     elif remaining <= 180:
         color = "#FFD700"
 
-    # 타이머 화면(메시지는 아래에서 단 1번만 출력)
+    # 타이머
     st.markdown(
         f"""
-        <div style="height:78vh; display:flex; justify-content:center; align-items:center; background:black;">
-            <span style="font-size:18vw; font-weight:800; color:{color}; font-family: 'Segoe UI', sans-serif;">
+        <div style="height:78vh; display:flex; justify-content:center; align-items:center; background:black; position:relative;">
+            <span style="font-size:18vw; font-weight:800; color:{color}; font-family:'Segoe UI', sans-serif;">
                 {time_str}
             </span>
         </div>
@@ -183,10 +192,28 @@ else:
         unsafe_allow_html=True,
     )
 
-    # 오리 이펙트: 화면 가운데를 왼→오로 슝 (4마리)
+    # 오리 이펙트: 타이머 수치 근처에 잠깐 뿅(3~4마리)
     now = time.time()
     if now < float(state.get("fx_until", 0.0)):
         seed = int(state.get("fx_seed", 0))
+        random.seed(seed)
+
+        count = int(state.get("fx_count", 4))
+        # 중앙 근처 랜덤 위치(타이머 숫자 주변)
+        ducks_html = []
+        for i in range(count):
+            dx = random.randint(-18, 18)   # vw 단위 이동
+            dy = random.randint(-10, 10)   # vh 단위 이동
+            delay = random.uniform(0.0, 0.25)
+            size = random.uniform(5.5, 7.5)
+            ducks_html.append(
+                f"""
+                <div class="duck" style="
+                    --dx:{dx}vw; --dy:{dy}vh; --delay:{delay}s; --size:{size}vw;
+                ">🦆</div>
+                """
+            )
+
         st.markdown(
             f"""
             <style>
@@ -196,35 +223,31 @@ else:
               pointer-events: none;
               z-index: 9999;
             }}
-            @keyframes flyAcross {{
-              0%   {{ transform: translateX(-25vw) translateY(var(--dy)) scale(1); opacity: 0; }}
-              10%  {{ opacity: 1; }}
-              90%  {{ opacity: 1; }}
-              100% {{ transform: translateX(125vw) translateY(var(--dy)) scale(1); opacity: 0; }}
+            @keyframes pop {{
+              0%   {{ transform: translate(var(--dx), var(--dy)) scale(0.6); opacity: 0; }}
+              30%  {{ opacity: 1; }}
+              70%  {{ opacity: 1; }}
+              100% {{ transform: translate(var(--dx), var(--dy)) scale(1.05); opacity: 0; }}
             }}
             .duck {{
               position: fixed;
-              top: 42vh;
-              left: 0;
-              font-size: 7vw;
-              animation: flyAcross 2.0s linear;
+              left: 50%;
+              top: 38%;
+              font-size: var(--size);
+              transform: translate(-50%, -50%);
+              animation: pop 1.2s ease-in-out;
               animation-delay: var(--delay);
-              transform: translateX(-25vw);
               filter: drop-shadow(0px 6px 10px rgba(0,0,0,0.35));
             }}
             </style>
-
-            <div class="duck-layer" data-seed="{seed}">
-              <div class="duck" style="--delay: 0.00s; --dy: -6vh;">🦆</div>
-              <div class="duck" style="--delay: 0.15s; --dy: -1vh;">🦆</div>
-              <div class="duck" style="--delay: 0.30s; --dy:  4vh;">🦆</div>
-              <div class="duck" style="--delay: 0.45s; --dy:  9vh;">🦆</div>
+            <div class="duck-layer">
+              {''.join(ducks_html)}
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    # 메시지 바: 딱 1번만 출력
+    # 메시지 바: 딱 1번만 출력(중복/깜빡 문제 해결용으로 여기만 유지)
     msg = (state.get("message") or "").strip()
     if msg:
         st.markdown(
@@ -244,6 +267,3 @@ else:
             """,
             unsafe_allow_html=True,
         )
-
-    time.sleep(1)
-    st.rerun()
