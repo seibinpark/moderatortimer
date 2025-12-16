@@ -24,7 +24,6 @@ def get_shared_state():
         "shake": False,           # 지진 효과
         "spin": False,            # 360 회전
         "bg_color": "#000000",    # 배경색
-        "timer_color": "#FFFFFF", # 숫자 색 (기본 흰색, 남은시간에 따라 자동 변경)
     }
 
 state = get_shared_state()
@@ -80,7 +79,7 @@ def get_stage_url() -> str:
 
 
 def pick_timer_color(remaining: int) -> str:
-    # 남은시간에 따라 숫자색 자동 변경(기존 룰 유지)
+    # 남은시간에 따라 숫자색 자동 변경
     if remaining <= 60:
         return "#FF3333" if remaining % 2 == 0 else "#FFFFFF"
     if remaining <= 180:
@@ -118,9 +117,7 @@ if mode == "control":
 
     st.divider()
 
-    # -------------------------
-    # 타이머 세팅(요청 반영)
-    # -------------------------
+    # 타이머 세팅
     st.subheader("타이머 세팅")
 
     s1, s2, s3, s4 = st.columns([1.2, 1.2, 1.2, 1.4])
@@ -140,8 +137,6 @@ if mode == "control":
     with s4:
         label = st.selectbox("배경색", list(BG_PRESETS.keys()), index=0)
         state["bg_color"] = BG_PRESETS[label]
-
-    st.caption("배경색이 밝을 경우(흰색/노랑) 숫자가 안 보이면, 숫자색 자동 규칙 때문에 시인성이 떨어질 수 있습니다. 필요하면 숫자색 고정 옵션도 추가 가능합니다")
 
     st.divider()
 
@@ -217,17 +212,7 @@ else:
     shake = bool(state.get("shake", False))
     spin = bool(state.get("spin", False))
 
-    # 숫자색은 남은시간 규칙으로 자동
     color = pick_timer_color(remaining)
-
-    # 애니메이션 클래스 구성
-    classes = []
-    if shake:
-        classes.append("shake")
-    if spin:
-        classes.append("spin")
-
-    cls = " ".join(classes).strip()
 
     st.markdown(
         f"""
@@ -250,7 +235,6 @@ else:
           user-select: none;
         }}
 
-        /* 지진 효과 */
         @keyframes quake {{
           0%   {{ transform: translate(0,0) rotate(0deg); }}
           10%  {{ transform: translate(-2px, 2px) rotate(-1deg); }}
@@ -268,7 +252,6 @@ else:
           animation: quake 0.45s infinite;
         }}
 
-        /* 360도 회전 */
         @keyframes spin360 {{
           from {{ transform: rotate(0deg); }}
           to   {{ transform: rotate(360deg); }}
@@ -277,7 +260,6 @@ else:
           animation: spin360 1.4s linear infinite;
         }}
 
-        /* shake + spin 동시일 때, transform 충돌 방지: wrap에 spin, text에 shake */
         .spin-on-wrap .stage-wrap-inner {{
           animation: spin360 1.4s linear infinite;
           transform-origin: center center;
@@ -285,12 +267,44 @@ else:
         .shake-on-text .timer-text {{
           animation: quake 0.45s infinite;
         }}
+
+        /* iPhone 메시지 느낌 말풍선 */
+        .bubble-wrap {{
+          position: fixed;
+          bottom: 6vh;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 999;
+          max-width: 80%;
+        }}
+        .bubble {{
+          background: rgba(40, 40, 40, 0.95);
+          color: #fff;
+          padding: 18px 26px;
+          border-radius: 28px;
+          font-size: 2.4vw;
+          font-weight: 500;
+          text-align: center;
+          box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+          position: relative;
+          word-break: keep-all;
+        }}
+        .bubble::after {{
+          content: "";
+          position: absolute;
+          bottom: -10px;
+          left: 50%;
+          transform: translateX(-50%);
+          border-width: 10px 12px 0 12px;
+          border-style: solid;
+          border-color: rgba(40,40,40,0.95) transparent transparent transparent;
+        }}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # transform 충돌 해결: 두 효과 동시 켜면 wrapper/텍스트로 분리 적용
+    # 타이머 본문
     if shake and spin:
         st.markdown(
             f"""
@@ -303,6 +317,7 @@ else:
             unsafe_allow_html=True,
         )
     else:
+        cls = ("shake" if shake else "") + (" spin" if spin else "")
         st.markdown(
             f"""
             <div class="stage-wrap">
@@ -312,23 +327,15 @@ else:
             unsafe_allow_html=True,
         )
 
-    # 메시지(하단 1회)
+    # 말풍선 메시지(있을 때만)
     msg = (state.get("message") or "").strip()
     if msg:
         st.markdown(
             f"""
-            <div style="background:#222; color:white; padding:20px; font-size:2.5vw; text-align:center;">
-                {msg}
+            <div class="bubble-wrap">
+              <div class="bubble">{msg}</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-    else:
-        st.markdown(
-            """
-            <div style="background:#111; color:#666; padding:12px; font-size:1.2vw; text-align:center;">
-                (현재 표시할 메시지가 없습니다)
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+
